@@ -1,0 +1,8 @@
+# Cross-platform line-ending normalization: auto-detect text and normalize to LF
+# inside the repo, converting on checkout per the client platform.
+* text=auto
+
+# Notebooks are JSON with embedded base64; keep them byte-stable across platforms
+# (no EOL munging on Windows clones).
+*.ipynb -text
+*.png binary
