@@ -1,13 +1,13 @@
-"""Builds cypress_gage_hydrographs_travel_time.ipynb from the cell list below.
+"""Builds gage_data_ex.ipynb from the cell list below.
 
 Run:  python build_notebook.py
-Then: python -m nbconvert --to notebook --execute --inplace cypress_gage_hydrographs_travel_time.ipynb
+Then: python -m nbconvert --to notebook --execute --inplace gage_data_ex.ipynb
 """
 from pathlib import Path
 import nbformat as nbf
 
 HERE = Path(__file__).resolve().parent
-OUT = HERE / "cypress_gage_hydrographs_travel_time.ipynb"
+OUT = HERE / "gage_data_ex.ipynb"
 
 cells = []
 def md(s):   cells.append(nbf.v4.new_markdown_cell(s.strip("\n")))
@@ -17,18 +17,18 @@ def code(s): cells.append(nbf.v4.new_code_cell(s.strip("\n")))
 md(r"""
 # Flood-wave travel time from stream gages — Cypress Creek, Houston TX
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jdf9/cypress-gage-travel-time/blob/main/cypress_gage_hydrographs_travel_time.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jdf9/cypress-gage-travel-time/blob/main/gage_data_ex.ipynb)
 
 **What this notebook does**
 
-1. Finds every USGS stream gage on a river (Cypress Creek) straight from the USGS Water Data API.
+1. Finds every USGS stream gage on a river (Cypress Creek) from the USGS Water Data API.
 2. Works out which gages have 15-minute **flow** and **stage** during two floods — **Tax Day 2016** and **Hurricane Harvey 2017**.
-3. Puts the gages in upstream → downstream order and measures the **channel distance** between them from the national hydrography network (NHDPlus via NLDI) — no shapefiles, no GIS software.
+3. Puts the gages in upstream → downstream order and measures the **channel distance** between them from the national hydrography network (NHDPlus via NLDI) — no shapefiles.
 4. Downloads and plots the flow and stage hydrographs at every gage.
 5. Estimates how long the flood wave took to travel between gages (peak-to-peak timing **and** cross-correlation), converts that into a **wave celerity**, and compares the two storms.
 6. Re-runs the whole pipeline on the **Guadalupe River** (Texas Hill Country) with a one-line change, so you can see that nothing here is Cypress-specific.
 
-**Skills you will leave with:** querying USGS monitoring locations, time-series metadata, instantaneous values and the NLDI network with `dataretrieval`; handling time zones correctly; tidy → wide reshaping in pandas; peak detection and lagged cross-correlation in numpy; and making a stacked-hydrograph figure and a travel-time diagram that a hydrologist would recognise.
+**Skills you will leave with:** querying USGS monitoring locations, time-series metadata, instantaneous values and the NLDI network with `dataretrieval`; handling time zones correctly; tidy → wide reshaping in pandas; peak detection and lagged cross-correlation in numpy.
 
 **Runtime:** about 2 minutes in Colab (all data are pulled live; nothing is stored in the repo).
 **Prerequisites:** basic Python and pandas. No hydrology background is assumed — the physical ideas are explained where they appear.
@@ -45,9 +45,11 @@ Colab already has numpy, pandas, matplotlib, scipy and geopandas. The only extra
 We use its `waterdata` module (the **new** USGS Water Data APIs at `api.waterdata.usgs.gov`) and its
 `nldi` module (the Network-Linked Data Index). The legacy `nwis` module still works but is being retired.
 
-You will see a one-time line *"No API key detected"* — ignore it. The notebook makes a few dozen requests, well
-inside the anonymous rate limit. (If you script hundreds of sites, register a free key at
-<https://api.waterdata.usgs.gov/signup/> and set the `API_USGS_PAT` environment variable.)
+You will see a one-time line *"No API key detected"* — ignore it. The notebook makes a few dozen requests, normally
+well inside the anonymous rate limit. If a cell stops with `QuotaExhausted` / *HTTP 429*, you have hit that limit
+(it happens when a whole class runs from one network, or after many re-runs): wait a few minutes and re-run the cell,
+or register a free key at <https://api.waterdata.usgs.gov/signup/> and set the `API_USGS_PAT` environment variable
+(in Colab: `import os; os.environ["API_USGS_PAT"] = "..."` before the imports below).
 """)
 
 code(r"""
@@ -331,10 +333,19 @@ def plot_map(stem, gages, dm, pos, title):
     ax.scatter(others.lon, others.lat, s=34, facecolor="none", edgecolor=MUTED, linewidth=1.2, zorder=2,
                label="other gages found (tributary, discontinued, or no data in the windows)")
     ax.scatter(stem.lon, stem.lat, s=70, c=stem.color, edgecolor=SURFACE, linewidth=1.5, zorder=3)
-    ax.legend(loc="lower right", fontsize=7.5)
-    for _, r in stem.iterrows():
-        ax.annotate(f"{r.label}\n{r.da_mi2:,.0f} mi²", (r.lon, r.lat), xytext=(6, -14), textcoords="offset points",
-                    fontsize=8, color=INK2)
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.18), fontsize=7.5)
+    ax.margins(x=0.06, y=0.3)                      # room for the labels hanging below / above the end gages
+    # Labels sit below-right of the marker; when a gage is close to the previous one (in axes fractions), flip it
+    # above so the two labels don't collide. A translucent backing keeps text legible over the channel line.
+    fx = (stem.lon - stem.lon.min()) / np.ptp(stem.lon); fy = (stem.lat - stem.lat.min()) / max(np.ptp(stem.lat), 1e-9)
+    above_prev = False
+    for i, (_, r) in enumerate(stem.iterrows()):
+        close = i > 0 and abs(fx.iloc[i] - fx.iloc[i - 1]) < 0.2 and abs(fy.iloc[i] - fy.iloc[i - 1]) < 0.3
+        above = close and not above_prev
+        ax.annotate(f"{r.label}\n{r.da_mi2:,.0f} mi²", (r.lon, r.lat), xytext=(6, 6 if above else -6),
+                    textcoords="offset points", fontsize=8, color=INK2, va="bottom" if above else "top",
+                    bbox=dict(boxstyle="round,pad=0.15", fc=SURFACE, ec="none", alpha=0.8))
+        above_prev = above
     ax.set_xlabel("Longitude"); ax.set_ylabel("Latitude"); ax.set_title(f"{title} — main-stem gages and NHDPlus channel")
     ax.set_aspect(1 / np.cos(np.deg2rad(stem.lat.mean())))
     plt.tight_layout(); plt.show()
@@ -349,7 +360,7 @@ md(r"""
 `waterdata.get_continuous` returns a **tidy** (long) table: one row per site × parameter × timestamp. Timestamps
 are **UTC**. Two habits worth keeping for life:
 
-* **Do the maths in UTC, display in local time.** We convert the event's local calendar dates to a UTC interval
+* **Do the math in UTC, display in local time.** We convert the event's local calendar dates to a UTC interval
   for the request, keep the index in UTC while resampling, and convert to local only at the end. Mixing a
   "naive" local clock with a UTC clock is the single most common way to get a travel time wrong by 5–6 hours.
 * **Regularise the time step before comparing gages.** Some gages report every 5 min, some every 15, and all
@@ -465,19 +476,23 @@ def plot_stacked(ev, Q, H, stem):
                 t, v = s.idxmax(), s.max()
                 ax.plot(t.tz_localize(None), v, "o", ms=5, color=r.color, mec=SURFACE, mew=1.2)
                 ax.annotate(f"{v:,.0f} {unit}\n{t:%b %d %H:%M}", (t.tz_localize(None), v),
-                            xytext=(6, -2), textcoords="offset points", fontsize=7.5, color=INK2, va="top")
-                ax.set_ylim(bottom=min(0, s.min()) if kind == "Discharge" else None)
+                            xytext=(6, -2), textcoords="offset points", fontsize=7.5, color=INK2, va="top",
+                            bbox=dict(boxstyle="round,pad=0.15", fc=SURFACE, ec="none", alpha=0.8))
+                # 32 % headroom above the peak: the top band belongs to the gage label, the data stay below it
+                lo = min(0, s.min()) if kind == "Discharge" else s.min() - 0.05 * (v - s.min())
+                ax.set_ylim(lo, lo + 1.32 * max(v - lo, 1e-6))
             else:
                 ax.text(0.5, 0.5, f"no {kind.lower()} record", transform=ax.transAxes, ha="center", color=MUTED)
+                ax.set_yticks([])
             ax.set_ylabel(unit, color=MUTED)
             if i == 0: ax.set_title(f"{kind} — {ev}")
-        axes[i, 0].text(0.01, 0.92, f"{r.label}  ({r.da_mi2:,.0f} mi²)", transform=axes[i, 0].transAxes,
+        axes[i, 0].text(0.01, 0.95, f"{r.label}  ({r.da_mi2:,.0f} mi²)", transform=axes[i, 0].transAxes,
                         fontsize=9, fontweight="semibold", color=r.color, va="top")
     loc = mdates.AutoDateLocator(minticks=5, maxticks=9)
     for ax in axes[-1]:
         ax.xaxis.set_major_locator(loc); ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(loc))
-    fig.suptitle(f"{CFG['title']} — {ev} (local time)", x=0.01, ha="left", fontsize=12, fontweight="semibold", color=INK)
-    plt.tight_layout(); plt.show()
+    fig.suptitle(f"{CFG['title']} — {ev} (local time)", x=0.01, y=0.998, ha="left", fontsize=12, fontweight="semibold", color=INK)
+    plt.tight_layout(); fig.subplots_adjust(top=1 - 0.55 / fig.get_figheight()); plt.show()   # suptitle clear of the column titles
 
 for ev in CFG["events"]:
     plot_stacked(ev, DATA[ev]["Q"], DATA[ev]["H"], stem)
@@ -682,13 +697,18 @@ reach where no downstream peak could be matched.
 
 code(r"""
 def plot_travel_time_diagram(TT, stem, title):
-    fig, ax = plt.subplots(figsize=(9, 4.8))
+    fig, ax = plt.subplots(figsize=(9, 5.4))
     xpos = dict(zip(stem.label, stem.dist_from_top_mi))
     for i_ev, (ev, g) in enumerate(TT.groupby("event", sort=False)):
         col = EVENT_COLORS[ev]
         t0 = min(g.t_peak_up.min(), g.t_peak_dn.min())
         hrs = lambda t: (t - t0) / pd.Timedelta(hours=1)
-        labels = {"pk": f"{ev} — matched peaks", "xc": f"{ev} — cross-correlation"}   # each legend entry once
+        # the reach-summed celerity for each method goes into its legend entry (each entry is added once)
+        v, x = g[g.lag_peak_h > 0], g[g.lag_xcorr_h > 0]
+        c_pk = v.dist_mi.sum() / v.lag_peak_h.sum() if len(v) else np.nan
+        c_xc = x.dist_mi.sum() / x.lag_xcorr_h.sum() if len(x) else np.nan
+        labels = {"pk": f"{ev} — matched peaks: {c_pk:.2f} mi/h ({c_pk*KM_PER_MI*1000/3600:.2f} m/s), {len(v)} reaches",
+                  "xc": f"{ev} — cross-correlation: {c_xc:.2f} mi/h"}
         for _, r in g.iterrows():
             up, dn = r.reach.split(" → ")
             x_up, x_dn, y_up = xpos[up], xpos[dn], hrs(r.t_peak_up)
@@ -700,20 +720,22 @@ def plot_travel_time_diagram(TT, stem, title):
                 ax.plot([x_up, x_dn], [y_up, y_up + r.lag_xcorr_h], "--", color=col, alpha=0.7, lw=1.2,
                         label=labels.pop("xc", None), zorder=2)
                 ax.plot(x_dn, y_up + r.lag_xcorr_h, "o", color=col, ms=5.5, mfc=SURFACE, mew=1.3, alpha=0.9, zorder=2)
-        v = g[g.lag_peak_h.notna()]
-        if len(v) and v.lag_peak_h.sum() > 0:
-            c = v.dist_mi.sum() / v.lag_peak_h.sum(); last = v.iloc[-1]
-            above = i_ev % 2 == 0                       # alternate the summary label above / below the line
-            ax.annotate(f"{ev}: {c:.2f} mi/h ({c*KM_PER_MI*1000/3600:.2f} m/s), {len(v)} matched reaches",
-                        (xpos[last.reach.split(' → ')[1]], hrs(last.t_peak_dn)), xytext=(-8, 9 if above else -11),
-                        textcoords="offset points", ha="right", va="bottom" if above else "top", fontsize=8, color=col)
     ax.margins(y=0.15)
+    # reserve a band above the data for the rotated gage labels so no line runs through them
+    fig.canvas.draw(); probe = ax.text(0, 0, max(xpos, key=len), rotation=90, fontsize=7.5)
+    band = probe.get_window_extent(fig.canvas.get_renderer()).height / ax.get_window_extent().height + 0.04
+    probe.remove()
+    y_lo, y_hi = ax.get_ylim()
+    y_top = max(np.nanmax(l.get_ydata()) for l in ax.lines)
+    ax.set_ylim(y_lo, max(y_hi, y_lo + (y_top - y_lo) / (1 - band)))
     for lab, xi in xpos.items():
         ax.axvline(xi, color=GRID, lw=0.8, zorder=0)
         ax.text(xi, ax.get_ylim()[1], lab, rotation=90, va="top", ha="right", fontsize=7.5, color=MUTED)
     ax.set_xlabel(f"Channel distance downstream of {stem.label.iloc[0]} (mi)")
     ax.set_ylabel("Hours after the earliest tracked peak"); ax.set_title(f"{title} — flood-wave travel time")
-    ax.legend(fontsize=8, loc="lower right"); plt.tight_layout(); plt.show()
+    hnd, lab = ax.get_legend_handles_labels()                      # legend in event order, matched peaks before xcorr
+    order = sorted(range(len(lab)), key=lambda k: (list(EVENT_COLORS).index(lab[k].split(" — ")[0]), "cross" in lab[k]))
+    ax.legend([hnd[k] for k in order], [lab[k] for k in order], fontsize=8, loc="lower right"); plt.tight_layout(); plt.show()
 
 plot_travel_time_diagram(TT, stem, CFG["title"])
 """)

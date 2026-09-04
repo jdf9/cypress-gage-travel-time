@@ -15,20 +15,21 @@ No shapefiles, no GIS software, no data stored in the repo — everything is pul
 
 ## Quick start
 
-The notebook ships **already executed**, so every table and figure is visible the moment you
-open it (including in GitHub's preview).
+Open the notebook and **Run all** — every table and figure is regenerated live from the USGS
+services in about two minutes.
 
 ### A · Google Colab — one click, nothing to install
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jdf9/cypress-gage-travel-time/blob/main/cypress_gage_hydrographs_travel_time.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jdf9/cypress-gage-travel-time/blob/main/gage_data_ex.ipynb)
 
 Click the badge, then **Runtime → Run all**. The first cell installs `dataretrieval` (the only
 package Colab does not already have). Full run is about 2 minutes; the data are pulled live from
 `api.waterdata.usgs.gov` and `api.water.usgs.gov/nldi`.
 
-You will see a one-time line *"No API key detected"* — ignore it; the notebook stays well inside
-the anonymous rate limit. (For heavy scripted use register a free key at
-<https://api.waterdata.usgs.gov/signup/> and set the `API_USGS_PAT` environment variable.)
+You will see a one-time line *"No API key detected"* — ignore it; a single run stays well inside
+the anonymous rate limit. If a cell stops with `QuotaExhausted` / HTTP 429 (a whole class running from one
+network, or many re-runs in a row), wait a few minutes and re-run the cell, or register a free key at
+<https://api.waterdata.usgs.gov/signup/> and set the `API_USGS_PAT` environment variable.
 
 ### B · Local — macOS / Linux
 
@@ -37,7 +38,7 @@ git clone https://github.com/jdf9/cypress-gage-travel-time.git
 cd cypress-gage-travel-time
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-jupyter lab            # then open cypress_gage_hydrographs_travel_time.ipynb
+jupyter lab            # then open gage_data_ex.ipynb
 ```
 
 ### C · Local — Windows (PowerShell)
@@ -47,7 +48,7 @@ git clone https://github.com/jdf9/cypress-gage-travel-time.git
 cd cypress-gage-travel-time
 py -m venv .venv; .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-jupyter lab            # then open cypress_gage_hydrographs_travel_time.ipynb
+jupyter lab            # then open gage_data_ex.ipynb
 ```
 
 > On some managed Windows machines, calling `pip.exe` or the `jupyter` shim directly is blocked
@@ -58,10 +59,10 @@ jupyter lab            # then open cypress_gage_hydrographs_travel_time.ipynb
 
 ```
 cypress_gage_travel_time/
-  cypress_gage_hydrographs_travel_time.ipynb   - the notebook (ships executed, ~2 MB with figures)
-  README.md                                    - this file
-  requirements.txt                             - pip dependencies
-  build_notebook.py                            - regenerates the .ipynb from source (see below)
+  gage_data_ex.ipynb   - the notebook
+  README.md            - this file
+  requirements.txt     - pip dependencies
+  build_notebook.py    - regenerates the .ipynb from source (see below)
 ```
 
 ## Notebook outline
@@ -121,7 +122,7 @@ Then **Run all**. Section 10 shows the whole thing done for the Guadalupe with
 ## Re-executing the notebook headlessly
 
 ```bash
-python -m nbconvert --to notebook --execute --inplace --ExecutePreprocessor.timeout=900 cypress_gage_hydrographs_travel_time.ipynb
+python -m nbconvert --to notebook --execute --inplace --ExecutePreprocessor.timeout=900 gage_data_ex.ipynb
 ```
 
 `build_notebook.py` regenerates the un-executed `.ipynb` from Python source (`python build_notebook.py`),
